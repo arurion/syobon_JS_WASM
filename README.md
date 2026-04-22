@@ -1,0 +1,2 @@
+# syobon_JS_WASM
+しょぼんのアクションをHTML+JS+WASMに移植することでより再現性を上げる試み
