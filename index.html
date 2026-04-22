@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>しょぼんのアクション(WASM+JS爆速版)</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:#000;display:flex;justify-content:center;align-items:center;height:100vh;overflow:hidden;}
+canvas{display:block;image-rendering:-webkit-optimize-contrast;image-rendering:-moz-crisp-edges;image-rendering:pixelated;max-width: 100vw;max-height: 100vh;object-fit: contain;}
+</style>
+</head>
+<body>
+<main style="display: contents;">
+  <canvas id="c" width="480" height="420"></canvas>
+</main>
+
+<script>
+// 【最重要】WASM(game.js)が読み込まれる「前」にModuleを定義してフックする
+var Module = {
+    onRuntimeInitialized: function() {
+        console.log("WASM Initialized!");
+        startWasmGame();
+    }
+};
+
+// ============================================================
+// アセットロード・描画処理（既存の描画ロジックを流用）
+// ============================================================
+const CHROMA_R = 153, CHROMA_G = 255, CHROMA_B = 255;
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const W = 480, H = 420;
+const pai = 3.1415926535;
+
+const IMG = {}; const SND = {};
+const IMAGE_FILES = { player:'res/player.PNG', brock:'res/brock.PNG', item:'res/item.PNG', teki:'res/teki.PNG', haikei:'res/haikei.PNG', brock2:'res/brock2.PNG', omake:'res/omake.PNG', omake2:'res/omake2.PNG', title:'res/syobon3.PNG' };
+const SOUND_FILES = { bgm100:'BGM/titerman.mp3', bgm103:'BGM/spelunk.mp3', bgm104:'BGM/star4.mp3', bgm105:'BGM/makaimura.mp3', bgm106:'BGM/puyo.mp3', s1:'SE/jump.mp3', s3:'SE/brockbreak.mp3', s4:'SE/coin.mp3', s5:'SE/humi.mp3', s6:'SE/koura.mp3', s7:'SE/dokan.mp3', s8:'SE/brockkinoko.mp3', s9:'SE/powerup.mp3', s10:'SE/kirra.mp3', s11:'SE/goal.mp3', s12:'SE/death.mp3', s13:'SE/Pswitch.mp3', s14:'SE/jumpBlock.mp3', s15:'SE/hintBlock.mp3', s16:'SE/4-clear.mp3', s17:'SE/allclear.mp3', s18:'SE/tekifire.mp3' };
+const OTO = { 0:null,1:'s1',2:null,3:'s3',4:'s4',5:'s5',6:'s6',7:'s7',8:'s8',9:'s9',10:'s10',11:'s11',12:'s12',13:'s13',14:'s14',15:'s15',16:'s16',17:'s17',18:'s18', 100:'bgm100',103:'bgm103',104:'bgm104',105:'bgm105',106:'bgm106' };
+
+function applyChroma(img) {
+  const oc = document.createElement('canvas'); oc.width = img.naturalWidth || img.width; oc.height = img.naturalHeight || img.height;
+  const octx = oc.getContext('2d'); octx.drawImage(img, 0, 0);
+  const id = octx.getImageData(0, 0, oc.width, oc.height); const d = id.data;
+  for (let i = 0; i < d.length; i += 4) { if (d[i]===CHROMA_R && d[i+1]===CHROMA_G && d[i+2]===CHROMA_B) d[i+3] = 0; }
+  octx.putImageData(id, 0, 0); return oc;
+}
+
+let currentBGMKey = null; let currentBGMAudio = null;
+function ot(n) { const k = OTO[n]; if (!k||!SND[k]) return; try { const a = SND[k]; a.volume=0.6; a.currentTime=0; a.play().catch(()=>{}); } catch(e) {} }
+function bgmchange(n) { if (currentBGMAudio) { currentBGMAudio.pause(); currentBGMAudio.currentTime=0; } currentBGMKey = OTO[n] || null; currentBGMAudio = currentBGMKey && SND[currentBGMKey] ? SND[currentBGMKey] : null; OTO[0] = OTO[n]; }
+function playBGM() { if (!currentBGMAudio) return; currentBGMAudio.loop=true; currentBGMAudio.volume=0.45; currentBGMAudio.play().catch(()=>{}); }
+function stopSound(n) { const k = OTO[n]; if(!k||!SND[k]) return; SND[k].pause(); SND[k].currentTime=0; }
+
+const grapDef = {}; function G(id, type, imgKey, sx, sy, sw, sh) { if(!grapDef[id]) grapDef[id]={}; grapDef[id][type]={imgKey,sx,sy,sw,sh}; }
+function setupGrap() {
+  G(40,0,'player',0,0,30,36); G(0,0,'player',31*4,0,30,36); G(1,0,'player',31*1,0,30,36); G(2,0,'player',31*2,0,30,36); G(3,0,'player',31*3,0,30,36); G(41,0,'omake',50,0,51,73);
+  for(let i=0;i<=6;i++){ G(i,1,'brock',33*i,0,30,30); G(i+30,1,'brock',33*i,33,30,30); G(i+60,1,'brock',33*i,66,30,30); } G(8,1,'brock',33*7,0,30,30); G(16,1,'item',33*6,0,24,27);
+  for(let i=0;i<=6;i++) G(i,5,'brock2',33*i,0,30,30); G(10,5,'brock2',33*1,33,30,30); G(11,5,'brock2',33*2,33,30,30); G(12,5,'brock2',33*0,66,30,30); G(13,5,'brock2',33*1,66,30,30); G(14,5,'brock2',33*2,66,30,30);
+  for(let i=0;i<=7;i++) G(i,2,'item',33*i,0,30,30); G(0,5,'omake',167,0,45,45);
+  G(0,3,'teki',33*0,0,30,30); G(1,3,'teki',33*1,0,30,43); G(2,3,'teki',33*2,0,30,30); G(3,3,'teki',33*3,0,30,44); G(4,3,'teki',33*4,0,33,35); G(5,3,'omake2',0,0,37,55); G(6,3,'omake2',38*2,0,36,50); G(150,3,'omake2',38*2+37*2,0,36,50); G(7,3,'teki',33*6+1,0,32,32); G(8,3,'omake2',38*2+37*3,0,37,47); G(151,3,'omake2',38*3+37*3,0,37,47); G(9,3,'teki',33*7+1,0,26,30); G(10,3,'omake',214,0,46,16); G(30,3,'omake2',0,56,30,36); G(155,3,'omake2',31*3,56,30,36); G(31,3,'omake',50,74,49,79); G(80,3,'haikei',151,31,70,40); G(81,3,'haikei',151,72,70,40); G(130,3,'haikei',151+71,72,70,40); G(82,3,'brock2',33*1,0,30,30); G(83,3,'omake',0,0,49,48); G(84,3,'teki',33*5+1,0,30,30); G(86,3,'omake',102,66,49,59); G(152,3,'omake',152,66,49,59); G(90,3,'omake',102,0,64,63); G(100,3,'item',33*1,0,30,30); G(101,3,'item',33*7,0,30,30); G(102,3,'item',33*3,0,30,30); G(105,3,'item',33*5,0,30,30); G(110,3,'item',33*4,0,30,30);
+  G(0,4,'haikei',0,0,150,90); G(1,4,'haikei',151,0,65,29); G(2,4,'haikei',151,31,70,40); G(3,4,'haikei',0,91,100,90); G(4,4,'haikei',151,113,51,29); G(5,4,'haikei',222,0,28,60); G(6,4,'haikei',151,143,90,40); G(20,4,'haikei',0,182,40,60);
+  G(30,6,'title',0,0,0,0);
+}
+
+let drawColor = 'rgb(0,0,0)'; let mirror = 0;
+function setcolor(r,g,b){ drawColor=`rgb(${r},${g},${b})`; }
+function setc0(){ drawColor='rgb(0,0,0)'; } function setc1(){ drawColor='rgb(255,255,255)'; }
+function fillrect(x,y,w,h){ if(w<=0||h<=0)return; ctx.fillStyle=drawColor; ctx.fillRect(x,y,w,h); }
+function drawrect(x,y,w,h){ if(w<=0||h<=0)return; ctx.strokeStyle=drawColor; ctx.lineWidth=1; ctx.strokeRect(x+.5,y+.5,w-1,h-1); }
+function drawline(x1,y1,x2,y2){ ctx.strokeStyle=drawColor; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke(); }
+function fillarc(x,y,rx,ry){ ctx.fillStyle=drawColor; ctx.beginPath(); ctx.ellipse(x,y,rx,ry,0,0,Math.PI*2); ctx.fill(); }
+function drawarc(x,y,rx,ry){ ctx.strokeStyle=drawColor; ctx.lineWidth=1; ctx.beginPath(); ctx.ellipse(x,y,rx,ry,0,0,Math.PI*2); ctx.stroke(); }
+
+function drawimage(gid, gtype, dx, dy) {
+  const def = grapDef[gid] && grapDef[gid][gtype]; if (!def) return;
+  const idx = Math.floor(dx), idy = Math.floor(dy);
+  if (gtype===6) { const src = IMG[def.imgKey]; if (!src) return; ctx.imageSmoothingEnabled = false; ctx.drawImage(src, idx, idy); return; }
+  const src = IMG[def.imgKey]; if (!src) return; const {sx,sy,sw,sh} = def; if (sw<=0||sh<=0) return;
+  ctx.save(); ctx.imageSmoothingEnabled = false;
+  if (mirror) { ctx.translate(idx+sw, idy); ctx.scale(-1,1); ctx.drawImage(src, sx,sy,sw,sh, 0,0,sw,sh); } else { ctx.drawImage(src, sx,sy,sw,sh, idx,idy,sw,sh); }
+  ctx.restore();
+}
+function DrawRotaGraph(cx,cy, scale, angle, gid, gtype) {
+  const def = grapDef[gid] && grapDef[gid][gtype]; if(!def)return; const src = IMG[def.imgKey]; if(!src)return; const {sx,sy,sw,sh}=def;
+  ctx.save(); ctx.imageSmoothingEnabled = false; ctx.translate(Math.floor(cx), Math.floor(cy)); ctx.rotate(angle); ctx.scale(scale,scale); ctx.drawImage(src,sx,sy,sw,sh,-sw/2,-sh/2,sw,sh); ctx.restore();
+}
+function str(text,x,y,size=20) { ctx.fillStyle=drawColor; ctx.font=`bold ${size}px monospace`; ctx.fillText(text,x,y+size); }
+
+const KEY={};
+let any_key_pushed = false;
+
+document.addEventListener('keydown', e => { 
+    KEY[e.code]=true; 
+    // ShiftとAlt "以外" のキーが新しく押された瞬間にフラグを立てる (CtrlやWinキーも含む)
+    if (e.key !== 'Shift' && e.key !== 'Alt' && !e.repeat) {
+        any_key_pushed = true;
+    }
+    if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','KeyZ','KeyO','Enter'].includes(e.code)) e.preventDefault(); 
+});
+document.addEventListener('keyup', e => { KEY[e.code]=false; });
+
+// マウスのクリック（左・中・右クリック）でも反応させる
+document.addEventListener('mousedown', () => {
+    any_key_pushed = true;
+});
+
+// ============================================================
+// メイン処理
+// ============================================================
+function startWasmGame() {
+    const getArr = (ptrFunc, max) => new Int32Array(Module.HEAP32.buffer, ptrFunc(), max);
+    
+    // C++関数のバインド
+    const CF = {
+        init_game: Module.cwrap('init_game', 'void',[]), update_frame: Module.cwrap('update_frame', 'void',[]),
+        set_key_state: Module.cwrap('set_key_state', 'void', Array(15).fill('number')),
+
+        get_fx: Module.cwrap('get_fx', 'number',[]), get_fy: Module.cwrap('get_fy', 'number',[]),
+        get_stagecolor: Module.cwrap('get_stagecolor', 'number',[]), get_main: Module.cwrap('get_main', 'number',[]),
+        get_trap: Module.cwrap('get_trap', 'number',[]), get_nokori: Module.cwrap('get_nokori', 'number',[]),
+        get_blacktm: Module.cwrap('get_blacktm', 'number',[]), get_mmsgtm: Module.cwrap('get_mmsgtm', 'number',[]),
+        get_mmsgtype: Module.cwrap('get_mmsgtype', 'number',[]), get_tmsgtm: Module.cwrap('get_tmsgtm', 'number',[]),
+        get_tmsgtype: Module.cwrap('get_tmsgtype', 'number',[]), get_tmsgy: Module.cwrap('get_tmsgy', 'number',[]), get_tmsg: Module.cwrap('get_tmsg', 'number',[]),
+
+        get_player_x: Module.cwrap('get_player_x', 'number',[]), get_player_y: Module.cwrap('get_player_y', 'number',[]),
+        get_player_muki: Module.cwrap('get_player_muki', 'number',[]), get_player_act: Module.cwrap('get_player_act', 'number',[]),
+        get_player_type: Module.cwrap('get_player_type', 'number',[]), get_player_mzimen: Module.cwrap('get_player_mzimen', 'number',[]), get_player_mnobia: Module.cwrap('get_player_mnobia', 'number',[]),
+
+        get_enem_max: Module.cwrap('get_enem_max', 'number',[]), get_enem_aa: Module.cwrap('get_enem_aa', 'number',[]), get_enem_ab: Module.cwrap('get_enem_ab', 'number',[]),
+        get_enem_anobia: Module.cwrap('get_enem_anobia', 'number',[]), get_enem_anobib: Module.cwrap('get_enem_anobib', 'number',[]), get_enem_atype: Module.cwrap('get_enem_atype', 'number',[]),
+        get_enem_axtype: Module.cwrap('get_enem_axtype', 'number',[]), get_enem_amuki: Module.cwrap('get_enem_amuki', 'number',[]), get_enem_atm: Module.cwrap('get_enem_atm', 'number',[]),
+        get_enem_ad: Module.cwrap('get_enem_ad', 'number',[]), get_enem_amsgtm: Module.cwrap('get_enem_amsgtm', 'number',[]), get_enem_amsgtype: Module.cwrap('get_enem_amsgtype', 'number',[]),
+
+        get_block_max: Module.cwrap('get_block_max', 'number',[]), get_block_ta: Module.cwrap('get_block_ta', 'number',[]), get_block_tb: Module.cwrap('get_block_tb', 'number',[]),
+        get_block_ttype: Module.cwrap('get_block_ttype', 'number',[]), get_block_txtype: Module.cwrap('get_block_txtype', 'number',[]),
+
+        get_effect_max: Module.cwrap('get_effect_max', 'number',[]), get_effect_ea: Module.cwrap('get_effect_ea', 'number',[]), get_effect_eb: Module.cwrap('get_effect_eb', 'number',[]),
+        get_effect_enobia: Module.cwrap('get_effect_enobia', 'number',[]), get_effect_enobib: Module.cwrap('get_effect_enobib', 'number',[]), get_effect_egtype: Module.cwrap('get_effect_egtype', 'number',[]), get_effect_etm: Module.cwrap('get_effect_etm', 'number',[]),
+
+        get_bg_max: Module.cwrap('get_bg_max', 'number',[]), get_bg_na: Module.cwrap('get_bg_na', 'number',[]), get_bg_nb: Module.cwrap('get_bg_nb', 'number',[]), get_bg_ntype: Module.cwrap('get_bg_ntype', 'number',[]),
+
+        get_s_max: Module.cwrap('get_s_max', 'number',[]), get_s_sa: Module.cwrap('get_s_sa', 'number',[]), get_s_sb: Module.cwrap('get_s_sb', 'number',[]),
+        get_s_sc: Module.cwrap('get_s_sc', 'number',[]), get_s_sd: Module.cwrap('get_s_sd', 'number',[]), get_s_stype: Module.cwrap('get_s_stype', 'number',[]), get_s_sxtype: Module.cwrap('get_s_sxtype', 'number',[]),
+
+        get_sr_max: Module.cwrap('get_sr_max', 'number',[]), get_sr_sra: Module.cwrap('get_sr_sra', 'number',[]), get_sr_srb: Module.cwrap('get_sr_srb', 'number',[]),
+        get_sr_src: Module.cwrap('get_sr_src', 'number',[]), get_sr_srsp: Module.cwrap('get_sr_srsp', 'number',[]),
+
+        get_play_bgm: Module.cwrap('get_play_bgm', 'number',[]), get_play_se: Module.cwrap('get_play_se', 'number',[]), get_stop_bgm: Module.cwrap('get_stop_bgm', 'number',[]),
+        get_xx: Module.cwrap('get_xx', 'number',[]), get_mainmsgtype: Module.cwrap('get_mainmsgtype', 'number',[])
+    };
+
+    CF.init_game();
+    let lastT = 0, walkAnimCounter = 0; 
+
+    function gameLoop(now) {
+        requestAnimationFrame(gameLoop);
+        const fps = KEY['Space'] ? 60 : 30;
+        if(now - lastT < (1000/fps) - 2) return;
+        lastT = now;
+
+        // set_key_state の第1引数に any_key_pushed を渡し、その後フラグを消費する
+        CF.set_key_state(any_key_pushed ? 1 : 0, KEY['ArrowLeft']?1:0, KEY['ArrowRight']?1:0, KEY['ArrowUp']||KEY['KeyZ']?1:0, KEY['ArrowDown']?1:0, KEY['KeyZ']?1:0, KEY['F1']?1:0, KEY['KeyO']?1:0, KEY['Enter']?1:0, KEY['Space']?1:0, KEY['Digit1']?1:0, KEY['Digit2']?1:0, KEY['Digit3']?1:0, KEY['Digit4']?1:0, KEY['Digit0']?1:0);
+        any_key_pushed = false;
+        
+        CF.update_frame();
+
+        if(CF.get_stop_bgm()) stopSound(0);
+        let se = CF.get_play_se(); if(se !== -1) ot(se);
+        let bgm = CF.get_play_bgm(); if(bgm !== -1) { bgmchange(bgm); playBGM(); }
+
+        ctx.clearRect(0,0,W,H);
+        const fx = CF.get_fx(), fy = CF.get_fy(), stagecolor = CF.get_stagecolor(), main_state = CF.get_main(), trap = CF.get_trap();
+
+        if(stagecolor===0) setcolor(0,0,0); else if(stagecolor===1||stagecolor===3) setcolor(160,180,250); else setcolor(10,10,10);
+        fillrect(0,0,W,H);
+
+        if(main_state===1) {
+            const nmax = CF.get_bg_max(); const na = getArr(CF.get_bg_na, nmax), nb = getArr(CF.get_bg_nb, nmax), ntype = getArr(CF.get_bg_ntype, nmax);
+            for(let i=0; i<nmax; i++) { 
+                if(na[i]<=-9e5) continue; 
+                const nx=(na[i]-fx)/100, ny=(nb[i]-fy)/100; 
+                drawimage(ntype[i], 4, ntype[i]===3 ? nx-5 : nx, ny); 
+                
+                // 背景に紐づく文字の描画
+                if(ntype[i]===100) { setc1(); str('51', nx, ny); }
+                if(ntype[i]===101) { setc1(); str('ゲームクリアー', nx, ny); }
+                if(ntype[i]===102) { setc1(); str('プレイしてくれてありがとー', nx, ny); }
+            }
+
+            const emax = CF.get_effect_max(); const ea = getArr(CF.get_effect_ea, emax), eb = getArr(CF.get_effect_eb, emax), enobia = getArr(CF.get_effect_enobia, emax), enobib = getArr(CF.get_effect_enobib, emax), egtype = getArr(CF.get_effect_egtype, emax), etm = getArr(CF.get_effect_etm, emax);
+            for(let i=0; i<emax; i++){
+                if(ea[i]<=-9e5 || etm[i]<0) continue; const ex=(ea[i]-fx)/100, ey=(eb[i]-fy)/100, eg = egtype[i];
+                if(eg===0) drawimage(0,2,ex,ey);
+                else if(eg===1){ if(stagecolor<=1||stagecolor===3) setcolor(144,96,48); else if(stagecolor===2) setcolor(0,120,160); else setcolor(192,192,192); fillarc(ex,ey,7,7); setc0(); drawarc(ex,ey,7,7); }
+                else if(eg===2||eg===3){ if(eg===3) mirror=1; drawimage(0,5,ex,ey); mirror=0; }
+                else if(eg===4){ setc1();fillrect(ex+10,ey,10,enobib[i]/100); setc0();drawrect(ex+10,ey,10,enobib[i]/100); setcolor(250,250,0);fillarc(ex+14,ey,10,10); setc0();drawarc(ex+14,ey,10,10); }
+            }
+
+            const srmax = CF.get_sr_max(); const sra = getArr(CF.get_sr_sra, srmax), srb = getArr(CF.get_sr_srb, srmax), src = getArr(CF.get_sr_src, srmax), srsp = getArr(CF.get_sr_srsp, srmax);
+            for(let i=0; i<srmax; i++){
+                if(sra[i]<=-9e5) continue; const srx=(sra[i]-fx)/100, sry=(srb[i]-fy)/100, srw=src[i]/100, sp = srsp[i];
+                if(sp<=9||sp>=20){ setcolor(sp===2?0:sp===21?180:220, sp===2?220:sp===21?180:220, sp===2?0:sp===21?180:0); fillrect(srx,sry,srw,sp===1?12:14); setcolor(sp===2?0:sp===21?150:180, sp===2?180:sp===21?150:180, sp===2?0:sp===21?150:0); drawrect(srx,sry,srw,sp===1?12:14); }
+                else if(sp<=14){ if(src[i]>=5000){ setcolor(0,200,0);fillrect(srx,sry,srw,30);setcolor(0,160,0);drawrect(srx,sry,srw,30); setcolor(180,120,60);fillrect(srx+20,sry+30,srw-40,480);setcolor(100,80,20);drawrect(srx+20,sry+30,srw-40,480); } }
+                else if(sp===15){ for(let t2=0;t2<=2;t2++) drawimage(1,1,srx+t2*29,sry); }
+            }
+
+            const mtype = CF.get_player_type(); mirror = CF.get_player_muki() === 0 ? 1 : 0;
+            if(KEY['ArrowLeft'] || KEY['ArrowRight']) walkAnimCounter++; const mact = Math.floor(walkAnimCounter / 6) % 2;
+            
+            // 【逆走バグ修正】 playerの座標は fx を引かない（C++側ですでに画面座標になっている）
+            if(mtype!==200 && mtype!==1){ drawimage(CF.get_player_mzimen()===1 ? mact : 2, 0, CF.get_player_x()/100, CF.get_player_y()/100); }
+            else if(mtype===1){ drawimage(41,0,CF.get_player_x()/100, CF.get_player_y()/100); } else if(mtype===200){ drawimage(3,0,CF.get_player_x()/100, CF.get_player_y()/100); }
+            mirror = 0;
+
+            const amax = CF.get_enem_max(); const aa = getArr(CF.get_enem_aa, amax), ab = getArr(CF.get_enem_ab, amax), anobia = getArr(CF.get_enem_anobia, amax), anobib = getArr(CF.get_enem_anobib, amax), atype = getArr(CF.get_enem_atype, amax), axtype = getArr(CF.get_enem_axtype, amax), amuki = getArr(CF.get_enem_amuki, amax), atm = getArr(CF.get_enem_atm, amax), ad = getArr(CF.get_enem_ad, amax);
+            for(let i=0; i<amax; i++) {
+                if(aa[i]<=-9e5) continue; const ax = (aa[i]-fx)/100, ay = (ab[i]-fy)/100, at = atype[i];
+                if(amuki[i]===1) mirror=1;
+                if(at===3 && axtype[i]===1) { DrawRotaGraph(ax+13,ay+15,1,pai,3,3); mirror=0; continue; }
+                if(at===9 && ad[i]>=1) { DrawRotaGraph(ax+13,ay+15,1,pai,9,3); mirror=0; continue; }
+                if(at>=100 && amuki[i]===1) mirror=0;
+                if(at<200 && at!==6 && at!==79 && at!==86 && at!==30){ if(!((at===80||at===81) && axtype[i]===1)) drawimage(at, 3, ax, ay); }
+                if(at===6){ if((atm[i]>=10&&atm[i]<=19)||(atm[i]>=100&&atm[i]<=119)||atm[i]>=200) drawimage(150,3,ax,ay); else drawimage(6,3,ax,ay); }
+                if(at===30) { if(axtype[i]===0) drawimage(30,3,ax,ay); else drawimage(155,3,ax,ay); }
+                if(at===81 && axtype[i]===1) drawimage(130,3,ax,ay);
+                if(at===79) { setcolor(250,250,0); fillrect(ax,ay,anobia[i]/100,anobib[i]/100); setc0(); drawrect(ax,ay,anobia[i]/100,anobib[i]/100); }
+                if(at===82) { if(axtype[i]===1) drawimage(stagecolor===2?34:stagecolor===4?64:4,1,ax,ay); if(axtype[i]===2) drawimage(1,5,ax,ay); }
+                if(at===83 && axtype[i]===1) drawimage(stagecolor===2?34:stagecolor===4?64:4,1,ax+10,ay+9);
+                if(at===85){ setc1();fillrect(ax+10,ay,10,anobib[i]/100); setc0();drawrect(ax+10,ay,10,anobib[i]/100); setcolor(0,250,200);fillarc(ax+14,ay,10,10); setc0();drawarc(ax+14,ay,10,10); }
+                if(at===86){ if(CF.get_player_x()>=aa[i]-fx-CF.get_player_mnobia()-4000 && CF.get_player_x()<=aa[i]-fx+anobia[i]+4000) drawimage(152,3,ax,ay); else drawimage(86,3,ax,ay); }
+                if(at===200) drawimage(0,3,ax,ay);
+                mirror=0;
+            }
+            
+
+
+            const tmax = CF.get_block_max(); const ta = getArr(CF.get_block_ta, tmax), tb = getArr(CF.get_block_tb, tmax), ttype = getArr(CF.get_block_ttype, tmax), txtype = getArr(CF.get_block_txtype, tmax);
+            for(let i=0; i<tmax; i++) {
+                if(ta[i]<=-9e5) continue; const bx=(ta[i]-fx)/100, by=(tb[i]-fy)/100, col9 = stagecolor===2?30:stagecolor===4?60:0, bt = ttype[i], xt = txtype[i];
+                if(bt<100) drawimage(bt+col9, 1, bx, by);
+                else if(bt===100||bt===101||bt===102||bt===103||(bt===104&&xt===1)||(bt===114&&xt===1)||bt===116) drawimage(2+col9,1,bx,by);
+                else if(bt===112||(bt===104&&xt===0)||(bt===115&&xt===1)||(bt===115&&xt===3)) drawimage(1+col9,1,bx,by);
+                else if(bt===111||bt===113||(bt===115&&xt===0)||bt===124) drawimage(3+col9,1,bx,by);
+                else if(bt===117&&xt===1) drawimage(4,5,bx,by); else if(bt===117&&xt>=3) drawimage(3,5,bx,by);
+                else if(bt===120&&xt!==1) drawimage(16,1,bx+3,by+2); else if(bt===130) drawimage(10,5,bx,by); else if(bt===131) drawimage(11,5,bx,by);
+                else if(bt===140) drawimage(12,5,bx,by); else if(bt===141) drawimage(13,5,bx,by); else if(bt===142) drawimage(14,5,bx,by);
+                else if(bt===300||bt===301) drawimage(1,5,bx,by); else if(bt===400) drawimage(2,5,bx,by); else if(bt===800) drawimage(0,2,bx+2,by+1);
+            }
+
+            const smax = CF.get_s_max(); const sa = getArr(CF.get_s_sa, smax), sb = getArr(CF.get_s_sb, smax), sc = getArr(CF.get_s_sc, smax), sd = getArr(CF.get_s_sd, smax), stype = getArr(CF.get_s_stype, smax), sxtype = getArr(CF.get_s_sxtype, smax);
+            for(let i=0; i<smax; i++) {
+                if(sa[i]<=-9e5) continue; const sx = (sa[i]-fx)/100, sy = (sb[i]-fy)/100, sw = sc[i]/100, sh = sd[i]/100, st = stype[i], xt = sxtype[i];
+                if(st===0){setcolor(40,200,40);fillrect(sx,sy,sw,sh);drawrect(sx,sy,sw,sh);}
+                else if(st===1||st===40){setcolor(0,230,0);fillrect(sx,sy+(st===40?1:0),sw,sh);setc0();drawrect(sx,sy+(st===40?1:0),sw,sh);}
+                else if(st===2){setcolor(0,230,0);fillrect(sx,sy+1,sw,sh);setc0();drawline(sx,sy,sx,sy+sh);drawline(sx+sw,sy,sx+sw,sy+sh);}
+                else if(st===5){setcolor(0,230,0);fillrect(sx,sy+1,sw,sh);setc0();drawline(sx,sy,sx+sw,sy);drawline(sx,sy+sh,sx+sw,sy+sh);}
+                else if(st===50){setcolor(0,230,0);fillrect(sx+5,sy+30,50,sh-30);setc0();drawline(sx+5,sy+30,sx+5,sy+sh);drawline(sx+55,sy+30,sx+55,sy+sh);setcolor(0,230,0);fillrect(sx,sy+1,60,30);setc0();drawrect(sx,sy+1,60,30);}
+                else if(st===51){
+                    if(xt===0)for(let t3=0;t3<=Math.floor(sc[i]/3000);t3++)drawimage(1,1,sx+29*t3,sy);
+                    else if(xt===1||xt===2)for(let t3=0;t3<=Math.floor(sc[i]/3000);t3++)drawimage(31,1,sx+29*t3,sy);
+                    else if(xt===3||xt===4){for(let t3=0;t3<=Math.floor(sc[i]/3000);t3++)for(let t22=0;t22<=Math.floor(sd[i]/3000);t22++)drawimage(65,1,sx+29*t3,sy+29*t22);}
+                    else if(xt===10)for(let t3=0;t3<=Math.floor(sc[i]/3000);t3++)drawimage(65,1,sx+29*t3,sy);
+                }
+                else if(st===52){ const col29=stagecolor===2?30:stagecolor===4?60:0; for(let t3=0;t3<=Math.floor(sc[i]/3000);t3++){ if(xt===0){drawimage(5+col29,1,sx+29*t3,sy);if(stagecolor!==4)drawimage(6+col29,1,sx+29*t3,sy+29);else drawimage(5+col29,1,sx+29*t3,sy+29);} if(xt===1)for(let t22=0;t22<=Math.floor(sd[i]/3000);t22++)drawimage(1+col29,1,sx+29*t3,sy+29*t22); } }
+                else if(trap===1&&st>=100&&st<=299){ if(stagecolor<=1||stagecolor===3) setc0(); else setc1(); drawrect(sx,sy,sw,sh); }
+                else if(st===300){setc1();fillrect(sx+10,sy,10,sh-8);setc0();drawrect(sx+10,sy,10,sh-8);setcolor(250,250,0);fillarc(sx+14,sy,10,10);setc0();drawarc(sx+14,sy,10,10);}
+                else if(st===500)drawimage(20,4,sx,sy);
+                else if(st===200)for(let t3=0;t3<=Math.floor(sc[i]/3000);t3++)for(let t22=0;t22<=Math.floor(sd[i]/3000);t22++)drawimage(65,1,sx+29*t3,sy+29*t22);
+            }
+
+            // ファイアバー描画追加
+            for(let i=0; i<amax; i++){
+                if(atype[i]!==87 || aa[i]<=-9e5) continue;
+                const ax=(aa[i]-fx)/100, ay=(ab[i]-fy)/100;
+                for(let fbi=0; fbi<=axtype[i]%100; fbi++){
+                    const xx26=18;
+                    const xd4=fbi*xx26*Math.cos(atm[i]*pai/180/2);
+                    const xd5=fbi*xx26*Math.sin(atm[i]*pai/180/2);
+                    const bx2=ax+Math.trunc(xd4);
+                    const by2=ay+Math.trunc(xd5);
+                    setcolor(230,120,0);fillarc(bx2,by2,8,8);setc0();drawarc(bx2,by2,8,8);
+                }
+            }
+
+            // プレイヤーと敵のセリフ描画を追加
+            if (CF.get_mmsgtm() >= 1) {
+                const pmsg = {1:'おいしい…',2:'まずい…',3:'ぐふぅ!!',10:'うほっ!!!!',11:'燃えるぅーー!!',
+                    50:'あづーーーー!!',51:'ファイアー!!!!',52:'オワタｗ',53:'あ、足が～!!',54:'熱すぎる!!',55:'私は燃え尽きてしまった'};
+                const msg = pmsg[CF.get_mmsgtype()];
+                if(msg) {
+                    const mx2 = (CF.get_player_x() + CF.get_player_mnobia() + 300) / 100;
+                    const my2 = CF.get_player_y() / 100;
+                    setc0(); str(msg, mx2-1, my2-1); str(msg, mx2+1, my2+1);
+                    setc1(); str(msg, mx2, my2);
+                }
+            }
+
+            const amsgtmArr = getArr(CF.get_enem_amsgtm, amax);
+            const amsgtypeArr = getArr(CF.get_enem_amsgtype, amax);
+            for(let i=0; i<amax; i++) {
+                if(amsgtmArr[i] >= 1) {
+                    const emsgs = {1001:'遅すぎるんだよ!!',1002:'無駄無駄無駄無駄ァ!!',1003:'テラヨワス',1004:'ぷー クスクス',1005:'強靭!!無敵!!最強!!!!',1006:'性能の差だな…',1007:'カエレ!!',1008:'ニマニマ',1011:'嘘だ!!',1012:'HE☆TA☆RE',1013:'ごめんねぇ 強くてさぁ!!',1014:'貴様 それでも軍人か!?',1015:'ゆとりはいい 想像を絶する',1016:'粛清してやる!!',1017:'さぁ 悪い子はどんどん(ry',1018:'戦闘力 1 のごみくずが…',1021:'グゥレイトォ!!',1022:'ポルポルポルポルゥ!!',1023:'ヤッフー!!',1024:'フハハハハハハ',1025:'神に祈る間をやろう',1026:'ざわ…ざわ……',1027:'え？俺勝っちゃったの？',1028:'これぞ 必 殺!!',15:'鉄壁!!よって、無敵!!',18:'ざまぁｗ',20:'Zzz',21:'ク、クマー',24:'？',25:'うほっ!!!!',30:'うめぇ!!',31:'シャキーン',50:'ビーー',85:'ポールアターック!!'};
+                    const msg = emsgs[amsgtypeArr[i]];
+                    if(msg) {
+                        const mx2 = (aa[i] + anobia[i] + 300 - fx) / 100;
+                        const my2 = amsgtypeArr[i] !== 31 ? (ab[i] - fy) / 100 : (ab[i] - fy - 800) / 100;
+                        setc0(); str(msg, mx2-1, my2-1); str(msg, mx2+1, my2+1);
+                        setc1(); str(msg, mx2, my2);
+                    }
+                }
+            }
+
+            if(CF.get_tmsgtm() > 0) {
+                const mx=60,my=40,mw=360, mh=CF.get_tmsgy()/100, tmsgtype=CF.get_tmsgtype(), tmsgtm = CF.get_tmsgtm();
+                
+                if(tmsgtype===1 || tmsgtype===2){
+                    setc0();fillrect(mx,my,mw,mh);setc1();drawrect(mx,my,mw,mh);
+                }
+                if(tmsgtype===2){
+                    const msgs={0:[[0,'テスト　hoge']],1:[[0,''],[0,'ステージ 1 より'],[1,'特殊的なものが増えたので'],[2,'気をつけてくれよ～'],[4,'後、アイテムの一部を利用するかも…'],[6,'                       ちく より']],2:[[3,'            ？が必要です '],[6,'                         m9(^Д^)']],3:[[3,'   別にコインに意味ないけどね '],[6,'                      (・ω・ )ﾉｼ']],4:[[2,'この先に隠しブロックがあります '],[4,'注意してください !!']],5:[[0,''],[1,' 前回よりも難易度を下げましたので'],[3,' 気楽にプレイしてください    '],[6,'                       ちく より']],80:[[1,'そんな容易に'],[2,'ヒントに頼るもんじゃないぜ'],[5,'ほら、さっさと次行きな!!']],100:[[0,'え？私ですか？ '],[2,'いやぁ、ただの通りすがりの'],[3,'ヒントブロックですよ～'],[5,'決して怪しいブロックじゃないですよ'],[6,'                          (…チッ)']]};
+                    const lines=msgs[CF.get_tmsg()]||[]; 
+                    for(let li=0;li<lines.length;li++){ 
+                        setc1(); str(lines[li][1], mx+6, my+6+lines[li][0]*24, 16); 
+                    }
+                }
+                if(tmsgtype===3){ 
+                    const rem=Math.floor(((15-1)*1200+1500)/100)-mh; 
+                    if(rem>0){setc0();fillrect(mx,my+mh,mw,rem);setc1();drawrect(mx,my+mh,mw,rem);} 
+                }
+            }
+
+            // OWATA ZONE などのメッセージ描画
+            const mainmsgtype = CF.get_mainmsgtype();
+            if(mainmsgtype >= 1){
+                setc1();
+                if(mainmsgtype === 1){
+                    str('WELCOME TO OWATA ZONE', 126, 100);
+                    for(let t2=0; t2<=2; t2++){
+                        str('1', 88 + t2 * 143, 210);
+                    }
+                }
+            }
+
+            // 暗転処理
+            if(CF.get_blacktm() > 0) { setc0();fillrect(0,0,W,H); }
+        }
+
+        // スタッフロールの描画
+        if(main_state===2){
+            setc0(); fillrect(0,0,W,H); // 背景を黒に塗りつぶす
+            setc1();
+            const xxArr = getArr(CF.get_xx, 91);
+            const txts=[[12,'制作・プレイに関わった方々'],
+                [13,'ステージ１　プレイ'],
+                [14,'先輩　Ⅹ～Ｚ'],
+                [15,'ステージ２　プレイ'],[16,'友人　willowlet '],
+                [17,'ステージ３　プレイ'],[18,'友人　willowlet '],[19,'ステージ４　プレイ'],
+                [20,'友人２　ann '],
+                [21,'ご協力'],
+                [22,'Ｔ先輩'],
+                [23,'Ｓ先輩'],[24,'動画技術提供'],
+                [25,'Ｋ先輩'],[26,'動画キャプチャ・編集・エンコード'],
+                [27,'willowlet '],[28,'プログラム・描画・ネタ・動画編集'],
+                [29,'ちく'],[30,'WASM+JS移植'], // かってにスタッフロール追加
+                [31,'Gemini　Claude'],[32,'プレイしていただき　ありがとうございました～']
+            ];
+            ctx.font = `bold 20px monospace`; // 中央揃えの幅計算のためにフォントをあらかじめセット
+            for(const [xi, text] of txts){
+                const y = xxArr[xi] / 100;
+                if(y > 0 && y < H + 40) str(text, W/2 - ctx.measureText(text).width/2, y);
+            }
+        }
+
+        if(main_state===10){ setc0();fillrect(0,0,W,H); drawimage(0,0,190,190); ctx.font='bold 20px monospace'; ctx.fillStyle='white'; ctx.fillText(` × ${CF.get_nokori()}`,230,215); }
+        if(main_state===100){
+            setcolor(160,180,250);fillrect(0,0,W,H); const titleDef=grapDef[30]&&grapDef[30][6];
+            if(titleDef&&IMG[titleDef.imgKey]){ ctx.drawImage(IMG[titleDef.imgKey],W/2-IMG[titleDef.imgKey].width/2,60); }
+            drawimage(0,4,12*30,10*29-12); drawimage(1,4,6*30,12*29-12); drawimage(0,0,2*30,12*29-12-6);
+            for(let tl=0;tl<=16;tl++){drawimage(5,1,29*tl,13*29-12);drawimage(6,1,29*tl,14*29-12);}
+            setc0();str('Press Enter or Z Key',W/2-10*20/2,250);
+        }
+    }
+
+    setupGrap();
+    const imgKeys=Object.keys(IMAGE_FILES), sndKeys=Object.keys(SOUND_FILES);
+    let total=imgKeys.length+sndKeys.length, done=0;
+    let started = false;
+    const check=()=>{ 
+        done++; 
+        if(done>=total && !started) {
+            started = true;
+            requestAnimationFrame(gameLoop); 
+        }
+    };
+    imgKeys.forEach(k=>{ const img=new Image(); img.onload=()=>{IMG[k]=applyChroma(img);check();}; img.onerror=check; img.src=IMAGE_FILES[k]; });
+    sndKeys.forEach(k=>{ const a=new Audio(); const fin=()=>{SND[k]=a;check();}; a.addEventListener('canplaythrough',fin,{once:true}); a.onerror=fin; a.preload='auto'; a.src=SOUND_FILES[k]; setTimeout(fin,4000); });
+
+    document.addEventListener('keydown',()=>{ if(currentBGMAudio&&currentBGMAudio.paused)playBGM(); },{once:true});
+}
+</script>
+
+<!-- 【最重要】必ず最後に game.js を読み込む -->
+<script src="game.js"></script>
+</body>
+</html>
