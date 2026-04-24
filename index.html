@@ -206,7 +206,8 @@ function startWasmGame() {
             }
 
             const mtype = CF.get_player_type(); mirror = CF.get_player_muki() === 0 ? 1 : 0;
-            if(KEY['ArrowLeft'] || KEY['ArrowRight']) walkAnimCounter++; const mact = Math.floor(walkAnimCounter / 6) % 2;
+			// walkAnimCounter の計算行を削除し、C++側から直接取得する
+			const mact = CF.get_player_act();
             
             // 【逆走バグ修正】 playerの座標は fx を引かない（C++側ですでに画面座標になっている）
             if(mtype!==200 && mtype!==1){ drawimage(CF.get_player_mzimen()===1 ? mact : 2, 0, CF.get_player_x()/100, CF.get_player_y()/100); }
@@ -248,14 +249,16 @@ function startWasmGame() {
                 else if(bt===300||bt===301) drawimage(1,5,bx,by); else if(bt===400) drawimage(2,5,bx,by); else if(bt===800) drawimage(0,2,bx+2,by+1);
             }
 
+            // ----------------- 【修正後】 -----------------
             const smax = CF.get_s_max(); const sa = getArr(CF.get_s_sa, smax), sb = getArr(CF.get_s_sb, smax), sc = getArr(CF.get_s_sc, smax), sd = getArr(CF.get_s_sd, smax), stype = getArr(CF.get_s_stype, smax), sxtype = getArr(CF.get_s_sxtype, smax);
+            
+            // 地面の描画ループ（1回目：通常土管など）
             for(let i=0; i<smax; i++) {
                 if(sa[i]<=-9e5) continue; const sx = (sa[i]-fx)/100, sy = (sb[i]-fy)/100, sw = sc[i]/100, sh = sd[i]/100, st = stype[i], xt = sxtype[i];
                 if(st===0){setcolor(40,200,40);fillrect(sx,sy,sw,sh);drawrect(sx,sy,sw,sh);}
-                else if(st===1||st===40){setcolor(0,230,0);fillrect(sx,sy+(st===40?1:0),sw,sh);setc0();drawrect(sx,sy+(st===40?1:0),sw,sh);}
+                else if(st===1){setcolor(0,230,0);fillrect(sx,sy,sw,sh);setc0();drawrect(sx,sy,sw,sh);}
                 else if(st===2){setcolor(0,230,0);fillrect(sx,sy+1,sw,sh);setc0();drawline(sx,sy,sx,sy+sh);drawline(sx+sw,sy,sx+sw,sy+sh);}
                 else if(st===5){setcolor(0,230,0);fillrect(sx,sy+1,sw,sh);setc0();drawline(sx,sy,sx+sw,sy);drawline(sx,sy+sh,sx+sw,sy+sh);}
-                else if(st===50){setcolor(0,230,0);fillrect(sx+5,sy+30,50,sh-30);setc0();drawline(sx+5,sy+30,sx+5,sy+sh);drawline(sx+55,sy+30,sx+55,sy+sh);setcolor(0,230,0);fillrect(sx,sy+1,60,30);setc0();drawrect(sx,sy+1,60,30);}
                 else if(st===51){
                     if(xt===0)for(let t3=0;t3<=Math.floor(sc[i]/3000);t3++)drawimage(1,1,sx+29*t3,sy);
                     else if(xt===1||xt===2)for(let t3=0;t3<=Math.floor(sc[i]/3000);t3++)drawimage(31,1,sx+29*t3,sy);
@@ -266,6 +269,13 @@ function startWasmGame() {
                 else if(trap===1&&st>=100&&st<=299){ if(stagecolor<=1||stagecolor===3) setc0(); else setc1(); drawrect(sx,sy,sw,sh); }
                 else if(st===300){setc1();fillrect(sx+10,sy,10,sh-8);setc0();drawrect(sx+10,sy,10,sh-8);setcolor(250,250,0);fillarc(sx+14,sy,10,10);setc0();drawarc(sx+14,sy,10,10);}
                 else if(st===500)drawimage(20,4,sx,sy);
+            }
+
+            // 地面の描画ループ（2回目：入る土管などの上書きレイヤー）
+            for(let i=0; i<smax; i++) {
+                if(sa[i]<=-9e5) continue; const sx = (sa[i]-fx)/100, sy = (sb[i]-fy)/100, sw = sc[i]/100, sh = sd[i]/100, st = stype[i];
+                if(st===40){setcolor(0,230,0);fillrect(sx,sy+1,sw,sh);setc0();drawrect(sx,sy+1,sw,sh);}
+                else if(st===50){setcolor(0,230,0);fillrect(sx+5,sy+30,50,sh-30);setc0();drawline(sx+5,sy+30,sx+5,sy+sh);drawline(sx+55,sy+30,sx+55,sy+sh);setcolor(0,230,0);fillrect(sx,sy+1,60,30);setc0();drawrect(sx,sy+1,60,30);}
                 else if(st===200)for(let t3=0;t3<=Math.floor(sc[i]/3000);t3++)for(let t22=0;t22<=Math.floor(sd[i]/3000);t22++)drawimage(65,1,sx+29*t3,sy+29*t22);
             }
 
@@ -378,7 +388,7 @@ function startWasmGame() {
             if(titleDef&&IMG[titleDef.imgKey]){ ctx.drawImage(IMG[titleDef.imgKey],W/2-IMG[titleDef.imgKey].width/2,60); }
             drawimage(0,4,12*30,10*29-12); drawimage(1,4,6*30,12*29-12); drawimage(0,0,2*30,12*29-12-6);
             for(let tl=0;tl<=16;tl++){drawimage(5,1,29*tl,13*29-12);drawimage(6,1,29*tl,14*29-12);}
-            setc0();str('Press Enter or Z Key',W/2-10*20/2,250);
+            setc0();str('Press Enter Key',W/2-10*20/2,250);
         }
     }
 
