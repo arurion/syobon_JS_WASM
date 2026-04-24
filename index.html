@@ -85,7 +85,14 @@ function DrawRotaGraph(cx,cy, scale, angle, gid, gtype) {
   const def = grapDef[gid] && grapDef[gid][gtype]; if(!def)return; const src = IMG[def.imgKey]; if(!src)return; const {sx,sy,sw,sh}=def;
   ctx.save(); ctx.imageSmoothingEnabled = false; ctx.translate(Math.floor(cx), Math.floor(cy)); ctx.rotate(angle); ctx.scale(scale,scale); ctx.drawImage(src,sx,sy,sw,sh,-sw/2,-sh/2,sw,sh); ctx.restore();
 }
-function str(text,x,y,size=20) { ctx.fillStyle=drawColor; ctx.font = `bold ${size}px "MS Gothic","ＭＳ ゴシック",monospace`; ctx.fillText(text,x,y+size); }
+function str(text,x,y,size=20,thickness=6) { 
+    ctx.fillStyle=drawColor; 
+	// DxLibの1〜9の太さをCSSのfont-weight(100〜900)に変換
+    const weight = Math.max(100, Math.min(900, thickness * 100));
+    ctx.font = `${weight} ${size}px "MS Gothic","ＭＳ ゴシック",monospace`; 
+    ctx.textBaseline = 'top'; // DxLibと同じ左上（top）基準にする
+    ctx.fillText(text, x, y); 
+}
 
 const KEY={};
 let any_key_pushed = false;
@@ -331,7 +338,8 @@ function startWasmGame() {
                     const msgs={0:[[0,'テスト　hoge']],1:[[0,''],[0,'ステージ 1 より'],[1,'特殊的なものが増えたので'],[2,'気をつけてくれよ～'],[4,'後、アイテムの一部を利用するかも…'],[6,'                       ちく より']],2:[[3,'            ？が必要です '],[6,'                         m9(^Д^)']],3:[[3,'   別にコインに意味ないけどね '],[6,'                      (・ω・ )ﾉｼ']],4:[[2,'この先に隠しブロックがあります '],[4,'注意してください !!']],5:[[0,''],[1,' 前回よりも難易度を下げましたので'],[3,' 気楽にプレイしてください    '],[6,'                       ちく より']],80:[[1,'そんな容易に'],[2,'ヒントに頼るもんじゃないぜ'],[5,'ほら、さっさと次行きな!!']],100:[[0,'え？私ですか？ '],[2,'いやぁ、ただの通りすがりの'],[3,'ヒントブロックですよ～'],[5,'決して怪しいブロックじゃないですよ'],[6,'                          (…チッ)']]};
                     const lines=msgs[CF.get_tmsg()]||[]; 
                     for(let li=0;li<lines.length;li++){ 
-                        setc1(); str(lines[li][1], mx+6, my+6+lines[li][0]*24, 16); 
+                        // サイズを20に変更（引数を省略してもデフォルト20になりますが明示的に記載）
+                        setc1(); str(lines[li][1], mx+6, my+6+lines[li][0]*24, 20, 5); 
                     }
                 }
                 if(tmsgtype===3){ 
@@ -345,9 +353,9 @@ function startWasmGame() {
             if(mainmsgtype >= 1){
                 setc1();
                 if(mainmsgtype === 1){
-                    str('WELCOME TO OWATA ZONE', 126, 100);
+                    str('WELCOME TO OWATA ZONE', 126, 100, 20, 4);
                     for(let t2=0; t2<=2; t2++){
-                        str('1', 88 + t2 * 143, 210);
+                        str('1', 88 + t2 * 143, 210, 20, 4);
                     }
                 }
             }
@@ -382,7 +390,7 @@ function startWasmGame() {
             }
         }
 
-        if(main_state===10){ setc0();fillrect(0,0,W,H); drawimage(0,0,190,190); ctx.font='bold 20px "ＭＳ ゴシック", "MS Gothic", monospace'; ctx.fillStyle='white'; ctx.fillText(` × ${CF.get_nokori()}`,230,215); }
+        if(main_state===10){ setc0();fillrect(0,0,W,H); drawimage(0,0,190,190); setc1(); str(` × ${CF.get_nokori()}`, 230, 200); }
         if(main_state===100){
             setcolor(160,180,250);fillrect(0,0,W,H); const titleDef=grapDef[30]&&grapDef[30][6];
             if(titleDef&&IMG[titleDef.imgKey]){ ctx.drawImage(IMG[titleDef.imgKey],W/2-IMG[titleDef.imgKey].width/2,60); }
