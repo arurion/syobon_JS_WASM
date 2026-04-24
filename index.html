@@ -85,7 +85,7 @@ function DrawRotaGraph(cx,cy, scale, angle, gid, gtype) {
   const def = grapDef[gid] && grapDef[gid][gtype]; if(!def)return; const src = IMG[def.imgKey]; if(!src)return; const {sx,sy,sw,sh}=def;
   ctx.save(); ctx.imageSmoothingEnabled = false; ctx.translate(Math.floor(cx), Math.floor(cy)); ctx.rotate(angle); ctx.scale(scale,scale); ctx.drawImage(src,sx,sy,sw,sh,-sw/2,-sh/2,sw,sh); ctx.restore();
 }
-function str(text,x,y,size=20) { ctx.fillStyle=drawColor; ctx.font=`bold ${size}px monospace`; ctx.fillText(text,x,y+size); }
+function str(text,x,y,size=20) { ctx.fillStyle=drawColor; ctx.font = `bold ${size}px "MS Gothic","ＭＳ ゴシック",monospace`; ctx.fillText(text,x,y+size); }
 
 const KEY={};
 let any_key_pushed = false;
@@ -375,20 +375,20 @@ function startWasmGame() {
                 [29,'ちく'],[30,'WASM+JS移植'], // かってにスタッフロール追加
                 [31,'Gemini'],[32,'プレイしていただき　ありがとうございました～']
             ];
-            ctx.font = `bold 20px monospace`; // 中央揃えの幅計算のためにフォントをあらかじめセット
+            ctx.font = `bold 20px "ＭＳ ゴシック", "MS Gothic", monospace`;
             for(const [xi, text] of txts){
                 const y = xxArr[xi] / 100;
                 if(y > 0 && y < H + 40) str(text, W/2 - ctx.measureText(text).width/2, y);
             }
         }
 
-        if(main_state===10){ setc0();fillrect(0,0,W,H); drawimage(0,0,190,190); ctx.font='bold 20px monospace'; ctx.fillStyle='white'; ctx.fillText(` × ${CF.get_nokori()}`,230,215); }
+        if(main_state===10){ setc0();fillrect(0,0,W,H); drawimage(0,0,190,190); ctx.font='bold 20px "ＭＳ ゴシック", "MS Gothic", monospace'; ctx.fillStyle='white'; ctx.fillText(` × ${CF.get_nokori()}`,230,215); }
         if(main_state===100){
             setcolor(160,180,250);fillrect(0,0,W,H); const titleDef=grapDef[30]&&grapDef[30][6];
             if(titleDef&&IMG[titleDef.imgKey]){ ctx.drawImage(IMG[titleDef.imgKey],W/2-IMG[titleDef.imgKey].width/2,60); }
             drawimage(0,4,12*30,10*29-12); drawimage(1,4,6*30,12*29-12); drawimage(0,0,2*30,12*29-12-6);
             for(let tl=0;tl<=16;tl++){drawimage(5,1,29*tl,13*29-12);drawimage(6,1,29*tl,14*29-12);}
-            setc0();str('Press Enter Key',W/2-10*20/2,250);
+            setc0();str('Prece Enter Key',W/2-8*20/2,250);
         }
     }
 
