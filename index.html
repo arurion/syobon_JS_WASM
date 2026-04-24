@@ -112,6 +112,30 @@ document.addEventListener('mousedown', () => {
     any_key_pushed = true;
 });
 
+function getPadState() {
+    const state = { any: 0, left: 0, right: 0, up: 0, down: 0, z: 0, enter: 0 };
+    const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
+    
+    for (const gp of gamepads) {
+        if (!gp) continue;
+        const d = 0.5; // スティック遊び
+
+        // 方向キー (DxLib PAD_INPUT_LEFT/RIGHT/UP/DOWN)
+        if (gp.axes[0] < -d || gp.buttons[14]?.pressed) state.left = 1;
+        if (gp.axes[0] > d  || gp.buttons[15]?.pressed) state.right = 1;
+        if (gp.axes[1] < -d || gp.buttons[12]?.pressed) state.up = 1;
+        if (gp.axes[1] > d  || gp.buttons[13]?.pressed) state.down = 1;
+
+        // ボタン入力 (DxLibの標準的な Zキー/Aボタン, Enter/Startボタン)
+        if (gp.buttons[0]?.pressed || gp.buttons[1]?.pressed || gp.buttons[2]?.pressed || gp.buttons[3]?.pressed) state.z = 1;
+        if (gp.buttons[9]?.pressed) state.enter = 1;
+
+        // any_key_pushed (CheckHitKeyAll 相当の判定用)
+        if (gp.buttons.some(b => b.pressed)) state.any = 1;
+    }
+    return state;
+}
+
 // ============================================================
 // メイン処理
 // ============================================================
@@ -162,12 +186,27 @@ function startWasmGame() {
 
     function gameLoop(now) {
         requestAnimationFrame(gameLoop);
-        const fps = KEY['Space'] ? 60 : 30;
+        
+        const pad = getPadState();
+        const fps = KEY['Space'] ? 60 : 30; // スペースキー押下時のみ早送り
+
         if(now - lastT < (1000/fps) - 2) return;
         lastT = now;
 
-        // set_key_state の第1引数に any_key_pushed を渡し、その後フラグを消費する
-        CF.set_key_state(any_key_pushed ? 1 : 0, KEY['ArrowLeft']?1:0, KEY['ArrowRight']?1:0, KEY['ArrowUp']||KEY['KeyZ']?1:0, KEY['ArrowDown']?1:0, KEY['KeyZ']?1:0, KEY['F1']?1:0, KEY['KeyO']?1:0, KEY['Enter']?1:0, KEY['Space']?1:0, KEY['Digit1']?1:0, KEY['Digit2']?1:0, KEY['Digit3']?1:0, KEY['Digit4']?1:0, KEY['Digit0']?1:0);
+        // C++ソースの入力判定に基づいたマッピング
+        CF.set_key_state(
+            (any_key_pushed || pad.any) ? 1 : 0, 
+            (KEY['ArrowLeft']  || pad.left)  ? 1 : 0, 
+            (KEY['ArrowRight'] || pad.right) ? 1 : 0, 
+            (KEY['ArrowUp']    || pad.up)    ? 1 : 0, // C++: key & PAD_INPUT_UP
+            (KEY['ArrowDown']  || pad.down)  ? 1 : 0, // C++: key & PAD_INPUT_DOWN
+            (KEY['KeyZ']       || pad.z)     ? 1 : 0, // C++: CheckHitKey(KEY_INPUT_Z)
+            KEY['F1'] ? 1 : 0, 
+            KEY['KeyO'] ? 1 : 0, 
+            (KEY['Enter']      || pad.enter) ? 1 : 0, // C++: CheckHitKey(KEY_INPUT_RETURN)
+            KEY['Space'] ? 1 : 0, 
+            KEY['Digit1']?1:0, KEY['Digit2']?1:0, KEY['Digit3']?1:0, KEY['Digit4']?1:0, KEY['Digit0']?1:0
+        );
         any_key_pushed = false;
         
         CF.update_frame();
